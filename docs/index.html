@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>findphone · Live Demo</title>
+<meta name="description" content="Interactive demo of findphone, a macOS app that finds your own iPhone using Bluetooth signal strength: digital speedometer, 3D direction arrow and direction sweep.">
+<link rel="icon" href="images/icon.png">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0e15;
+    --card: #141925;
+    --card-edge: #232b3b;
+    --text: #e8ecf3;
+    --muted: #94a0b4;
+    --accent: #3d8bff;
+    --zone: #8e8e93;
+    --arrow: #8e8e93;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: radial-gradient(1200px 600px at 70% -10%, #1b2440 0%, var(--bg) 60%) fixed, var(--bg);
+    color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  a { color: #7fb2ff; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 24px 16px 48px; }
+
+  header { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  header img { width: 64px; height: 64px; }
+  header h1 { margin: 0; font-size: 30px; letter-spacing: -0.5px; }
+  header p { margin: 2px 0 0; color: var(--muted); }
+  .links { margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 9px 14px; border-radius: 10px; border: 1px solid var(--card-edge);
+    background: #1b2231; color: var(--text); font: inherit; font-size: 14px; font-weight: 600;
+    text-decoration: none; cursor: pointer;
+  }
+  .btn:hover { background: #222b3e; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: #2f7af0; }
+  .btn:disabled { opacity: .45; cursor: default; }
+
+  .notice {
+    margin: 18px 0; padding: 10px 14px; border-radius: 10px;
+    background: #2a2414; border: 1px solid #5c4a19; color: #f2d58a; font-size: 14px;
+  }
+
+  .grid { display: grid; grid-template-columns: 1fr; gap: 18px; }
+  @media (min-width: 920px) { .grid { grid-template-columns: 1.05fr 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--card-edge); border-radius: 16px; padding: 16px; min-width: 0; }
+  .card h2 { margin: 0 0 10px; font-size: 18px; }
+
+  #room { width: 100%; aspect-ratio: 10 / 7; display: block; border-radius: 10px; cursor: crosshair; touch-action: manipulation; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+
+  .gauge-wrap { display: flex; justify-content: center; }
+  #gauge { width: 100%; max-width: 320px; height: auto; }
+
+  .direction { display: flex; align-items: center; gap: 12px; margin-top: 6px; flex-wrap: wrap; justify-content: center; }
+  .dirtext { flex: 1 1 200px; min-width: 0; }
+  .dirtext h3 { margin: 0; font-size: 22px; }
+  .dirtext p { margin: 4px 0 0; color: var(--muted); }
+
+  /* 3D arrow on its base */
+  .arrow-stage { position: relative; width: 210px; height: 160px; perspective: 520px; flex: 0 0 auto; }
+  .ahead { position: absolute; top: 2px; left: 0; right: 0; text-align: center; font-weight: 900; font-size: 13px; letter-spacing: 1.5px; color: var(--arrow); opacity: .9; }
+  .plane { position: absolute; left: 50%; top: 56%; width: 170px; height: 170px; margin: -85px 0 0 -85px; transform: rotateX(58deg); transform-style: preserve-3d; }
+  .floor {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--arrow) 32%, transparent) 0%, color-mix(in srgb, var(--arrow) 4%, transparent) 70%);
+    border: 3px solid color-mix(in srgb, var(--arrow) 60%, transparent);
+  }
+  .floor::after { content: ""; position: absolute; inset: 17%; border-radius: 50%; border: 1.5px dashed color-mix(in srgb, var(--arrow) 35%, transparent); }
+  .mark { position: absolute; left: 50%; top: 0; width: 3px; height: 14px; margin-left: -1.5px; border-radius: 2px; background: color-mix(in srgb, var(--arrow) 55%, transparent); transform-origin: 50% 85px; }
+  .mark.m0 { width: 5px; margin-left: -2.5px; background: var(--arrow); }
+  .spinner { position: absolute; inset: 0; transform-style: preserve-3d; transition: transform .7s cubic-bezier(.34, 1.45, .64, 1); }
+  .bob { position: absolute; inset: 0; transform-style: preserve-3d; }
+  .arrow-stage.active .bob { animation: bob 1.1s ease-in-out infinite alternate; }
+  @keyframes bob { from { transform: translateZ(0); } to { transform: translateZ(9px); } }
+  .layer { position: absolute; left: 50%; top: 50%; width: 58px; height: 85px; margin: -42.5px 0 0 -29px; }
+  .layer path { fill: var(--arrow); }
+  .layer.side { filter: brightness(.55); }
+  .layer.top { filter: drop-shadow(0 0 8px var(--arrow)); }
+  .arrow-stage:not(.active) { opacity: .55; }
+
+  .sweep { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--card-edge); }
+  .sweep .step { font-size: 12px; color: var(--muted); }
+  .sweep .title { font-weight: 700; margin: 2px 0 6px; }
+  progress { width: 100%; height: 8px; accent-color: var(--accent); }
+  .medians { display: flex; gap: 18px; flex-wrap: wrap; margin: 6px 0; font-size: 13px; }
+  .medians div { text-align: center; }
+  .medians b { color: #34c759; }
+
+  .stats { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin-top: 12px; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .stats span:nth-child(odd) { color: var(--muted); }
+  .toggle { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 14px; }
+
+  .found {
+    margin-top: 10px; padding: 10px 14px; border-radius: 10px; background: #12301d; border: 1px solid #1f6b3a; color: #8ef0ad; font-weight: 600;
+    display: none; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .found.show { display: flex; }
+
+  .how { margin-top: 26px; }
+  .how h2 { font-size: 20px; }
+  .how ul { padding-left: 20px; color: #c7cfdc; }
+  .how li { margin: 6px 0; }
+  footer { margin-top: 30px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="images/icon.png" alt="">
+    <div>
+      <h1>findphone</h1>
+      <p>Find your own iPhone in a room using your Mac's Bluetooth signal strength.</p>
+    </div>
+    <nav class="links">
+      <a class="btn" href="https://github.com/gopal089/findphone">Source on GitHub</a>
+      <a class="btn primary" href="https://github.com/gopal089/findphone/releases/latest">Download the Mac app</a>
+    </nav>
+  </header>
+
+  <p class="notice"><b>Live simulation.</b> Browsers can't measure Bluetooth signal strength, so this demo simulates the signal from a hidden phone. Everything else (median smoothing, closer/farther trend, the direction sweep, the speedometer and arrow) uses the same rules as the real macOS app.</p>
+
+  <main class="grid">
+    <section class="card">
+      <h2>The room (top-down)</h2>
+      <canvas id="room" aria-label="Room map. Click to walk to a spot."></canvas>
+      <div class="controls">
+        <button class="btn" id="turnLeft" title="Turn left (A or ←)">⟲ Turn left</button>
+        <button class="btn" id="stepFwd" title="Step forward (W or ↑)">▲ Step</button>
+        <button class="btn" id="turnRight" title="Turn right (D or →)">Turn right ⟳</button>
+        <button class="btn" id="togglePhone">Show phone</button>
+        <button class="btn" id="newPhone">Hide a new phone</button>
+      </div>
+      <p class="hint">Click or tap anywhere in the room to walk there. Keys: W / ↑ step, A / ← and D / → turn. The blue wedge shows which way you face.</p>
+      <div class="found" id="found">🎉 Found it! <button class="btn" id="foundAgain">Hide a new phone</button></div>
+    </section>
+
+    <section class="card">
+      <h2>findphone</h2>
+      <div class="gauge-wrap"><svg id="gauge" viewBox="0 0 300 300" role="img" aria-label="Signal strength speedometer"></svg></div>
+
+      <div class="direction">
+        <div class="arrow-stage" id="arrowStage" aria-hidden="true">
+          <div class="ahead">AHEAD</div>
+          <div class="plane">
+            <div class="floor"></div>
+            <div class="mark m0"></div>
+            <div class="mark" style="transform: rotate(90deg)"></div>
+            <div class="mark" style="transform: rotate(180deg)"></div>
+            <div class="mark" style="transform: rotate(270deg)"></div>
+            <div class="spinner" id="spinner"><div class="bob" id="bob"></div></div>
+          </div>
+        </div>
+        <div class="dirtext">
+          <h3 id="dirTitle">Walk a few steps</h3>
+          <p id="dirDetail">findphone needs a few seconds of movement to see a trend.</p>
+        </div>
+      </div>
+
+      <div class="sweep" id="sweep"></div>
+
+      <div class="stats" id="stats"></div>
+      <label class="toggle"><input type="checkbox" id="sound"> Click faster as I get closer</label>
+    </section>
+  </main>
+
+  <section class="how">
+    <h2>How the real app works</h2>
+    <ul>
+      <li><b>Measure:</b> CoreBluetooth connects to <i>your</i> confirmed device (link only, never pairs) and reads its RSSI every 0.3 s.</li>
+      <li><b>Clean:</b> readings outside -126…-1 dBm are rejected; the speedometer shows the median of the 7 newest.</li>
+      <li><b>Trend:</b> the last 3 s vs the 3 s before. A change of 3 dB or more means closer or farther.</li>
+      <li><b>Direction:</b> turn on the spot in four quarter-turns. Your body blocks some signal from behind you, so the strongest direction is usually the phone's. A 3 dB lead is "likely", 6 dB "strong".</li>
+      <li><b>Limits:</b> RSSI shows proximity, not exact distance. Macs have no Ultra-Wideband chip, so direction is estimated. For a truly lost phone, use Apple's Find My.</li>
+    </ul>
+  </section>
+
+  <footer>findphone by <a href="https://github.com/gopal089">gopal089</a> · Swift, SwiftUI, CoreBluetooth · <a href="https://github.com/gopal089/findphone">source</a></footer>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---------- Shared rules (same as the macOS app) ----------
+  const VALID_MIN = -126, VALID_MAX = -1, WINDOW = 7;
+  const TREND_WINDOW = 3, TREND_THRESHOLD = 3, MIN_TREND = 3;
+  const READ_EVERY = 300; // ms
+  const median = v => {
+    if (!v.length) return null;
+    const s = [...v].sort((a, b) => a - b), m = s.length >> 1;
+    return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+  };
+  const closeness = r => Math.min(Math.max((r + 100) / 70, 0), 1);
+  const clickInterval = r => {
+    const c = Math.min(Math.max(r, -95), -50), f = (c + 95) / 45;
+    return 1 + (0.07 - 1) * f;
+  };
+  const zone = r => {
+    if (r == null) return ["NO SIGNAL", "#8e8e93"];
+    if (r >= -45) return ["VERY CLOSE", "#34c759"];
+    if (r >= -60) return ["CLOSE", "#8ce633"];
+    if (r >= -75) return ["NEARBY", "#ffcc00"];
+    if (r >= -90) return ["FAR", "#ff9500"];
+    return ["VERY FAR", "#ff3b30"];
+  };
+  const clock = s => { s = Math.max(0, Math.floor(s)); return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); };
+  const angDiff = (a, b) => { let d = ((a - b) % 360 + 540) % 360 - 180; return d; };
+
+  // ---------- Simulation ----------
+  const ROOM = { w: 10, h: 7 };
+  const furniture = [
+    { x: 0.4, y: 0.4, w: 2.6, h: 1.0, label: "Sofa" },
+    { x: 4.2, y: 2.8, w: 1.6, h: 1.0, label: "Table" },
+    { x: 7.4, y: 0.4, w: 2.2, h: 2.6, label: "Bed" },
+    { x: 7.8, y: 5.6, w: 1.8, h: 1.0, label: "Desk" },
+  ];
+  const state = {
+    you: { x: 2, y: 5.8, heading: 0 },  // heading: 0 = up, clockwise degrees
+    target: null,
+    phone: { x: 8, y: 1.5 },
+    showPhone: false,
+    found: false,
+    recent: [], history: [], strongest: null, latest: null, start: performance.now(),
+    sweep: null, sweepResult: null,
+  };
+
+  function hidePhone() {
+    let p;
+    do { p = { x: 0.6 + Math.random() * (ROOM.w - 1.2), y: 0.6 + Math.random() * (ROOM.h - 1.2) }; }
+    while (Math.hypot(p.x - state.you.x, p.y - state.you.y) < 4);
+    state.phone = p; state.found = false; state.showPhone = false;
+    state.recent = []; state.history = []; state.strongest = null; state.latest = null;
+    state.start = performance.now(); state.sweep = null; state.sweepResult = null;
+    document.getElementById("found").classList.remove("show");
+    document.getElementById("togglePhone").textContent = "Show phone";
+    renderSweep();
+  }
+
+  const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  function simulatedRSSI() {
+    const dx = state.phone.x - state.you.x, dy = state.phone.y - state.you.y;
+    const d = Math.max(0.3, Math.hypot(dx, dy));
+    const bearing = Math.atan2(dx, -dy) * 180 / Math.PI;
+    const off = Math.abs(angDiff(bearing, state.you.heading));
+    const body = 12 * (1 - Math.cos(off * Math.PI / 180)) / 2;  // your body blocks up to 12 dB from behind
+    return Math.round(-52 - 24 * Math.log10(d) - body + gauss() * 2.2);
+  }
+
+  function takeReading(now) {
+    const r = simulatedRSSI();
+    if (r < VALID_MIN || r > VALID_MAX) return;
+    const reading = { rssi: r, t: now };
+    state.recent.push(r); if (state.recent.length > WINDOW) state.recent.shift();
+    state.history.push(reading); while (state.history.length && now - state.history[0].t > 60000) state.history.shift();
+    state.latest = reading;
+    if (!state.strongest || r > state.strongest.rssi) state.strongest = { rssi: r, t: now };
+  }
+
+  function trend(now) {
+    const rec = state.history.filter(h => now - h.t <= TREND_WINDOW * 1000).map(h => h.rssi);
+    const ear = state.history.filter(h => { const a = now - h.t; return a > TREND_WINDOW * 1000 && a <= 2 * TREND_WINDOW * 1000; }).map(h => h.rssi);
+    if (rec.length < MIN_TREND || ear.length < MIN_TREND) return { kind: "unknown" };
+    const ch = median(rec) - median(ear);
+    if (ch >= TREND_THRESHOLD) return { kind: "closer", db: ch };
+    if (ch <= -TREND_THRESHOLD) return { kind: "farther", db: -ch };
+    return { kind: "steady" };
+  }
+
+  // ---------- Direction sweep (sped up for the demo) ----------
+  const HEADINGS = [["Ahead", "straight ahead"], ["Right", "to your right"], ["Behind", "behind you"], ["Left", "to your left"]];
+  const TURN_S = 1.5, MEASURE_S = 2.5;
+  function startSweep() {
+    state.target = null;
+    state.sweep = { step: 0, phase: "turning", phaseStart: performance.now(), base: state.you.heading, from: state.you.heading, medians: {} };
+    state.sweepResult = null;
+    renderSweep();
+  }
+  function updateSweep(now) {
+    const s = state.sweep; if (!s) return;
+    const elapsed = (now - s.phaseStart) / 1000;
+    if (s.phase === "turning") {
+      const goal = s.base + s.step * 90;
+      const f = Math.min(1, elapsed / TURN_S);
+      state.you.heading = s.from + (goal - s.from) * (s.step === 0 ? 1 : f);
+      if (elapsed >= TURN_S) { s.phase = "measuring"; s.phaseStart = now; s.measureStart = now; renderSweep(); }
+    } else if (elapsed >= MEASURE_S) {
+      const vals = state.history.filter(h => h.t >= s.measureStart).map(h => h.rssi);
+      if (vals.length >= 4) s.medians[s.step] = median(vals);
+      if (s.step < 3) { s.step++; s.phase = "turning"; s.phaseStart = now; s.from = state.you.heading; }
+      else {
+        const entries = Object.entries(s.medians).map(([k, v]) => [Number(k), v]).sort((a, b) => b[1] - a[1]);
+        state.sweepResult = entries.length >= 3 ? { medians: s.medians, best: entries[0][0], margin: entries[0][1] - entries[1][1] } : { medians: s.medians, best: null, margin: 0 };
+        state.sweep = null;
+      }
+      renderSweep();
+    } else {
+      // Only the progress bar changes between steps, so don't rebuild the panel.
+      const bar = document.getElementById("sweepProg");
+      if (bar) bar.value = Math.min(1, elapsed / MEASURE_S);
+    }
+  }
+  const confidence = m => m >= 6 ? "strong" : m >= 3 ? "likely" : "unclear";
+
+  // ---------- Room canvas ----------
+  const canvas = document.getElementById("room"), ctx = canvas.getContext("2d");
+  function resize() { const dpr = window.devicePixelRatio || 1; canvas.width = canvas.clientWidth * dpr; canvas.height = canvas.clientHeight * dpr; }
+  window.addEventListener("resize", resize);
+
+  function drawRoom() {
+    const W = canvas.width, H = canvas.height, sx = W / ROOM.w, sy = H / ROOM.h, dpr = window.devicePixelRatio || 1;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "#1a2130"; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(255,255,255,0.05)"; ctx.lineWidth = 1;
+    for (let x = 1; x < ROOM.w; x++) { ctx.beginPath(); ctx.moveTo(x * sx, 0); ctx.lineTo(x * sx, H); ctx.stroke(); }
+    for (let y = 1; y < ROOM.h; y++) { ctx.beginPath(); ctx.moveTo(0, y * sy); ctx.lineTo(W, y * sy); ctx.stroke(); }
+    ctx.font = `${12 * dpr}px -apple-system, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    for (const f of furniture) {
+      ctx.fillStyle = "#2a3346"; ctx.strokeStyle = "#3a4560";
+      ctx.beginPath(); ctx.roundRect(f.x * sx, f.y * sy, f.w * sx, f.h * sy, 8 * dpr); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#8390a8"; ctx.fillText(f.label, (f.x + f.w / 2) * sx, (f.y + f.h / 2) * sy);
+    }
+    if (state.target) { ctx.fillStyle = "rgba(61,139,255,0.5)"; ctx.beginPath(); ctx.arc(state.target.x * sx, state.target.y * sy, 5 * dpr, 0, 7); ctx.fill(); }
+    if (state.showPhone || state.found) {
+      const px = state.phone.x * sx, py = state.phone.y * sy;
+      ctx.fillStyle = "#34c759"; ctx.beginPath(); ctx.roundRect(px - 6 * dpr, py - 10 * dpr, 12 * dpr, 20 * dpr, 3 * dpr); ctx.fill();
+      ctx.strokeStyle = "rgba(52,199,89,0.5)"; ctx.lineWidth = 2 * dpr;
+      for (const r of [16, 24]) { ctx.beginPath(); ctx.arc(px, py, r * dpr, 0, 7); ctx.stroke(); }
+    }
+    // You: facing wedge + body
+    const yx = state.you.x * sx, yy = state.you.y * sy, a = (state.you.heading - 90) * Math.PI / 180;
+    ctx.fillStyle = "rgba(61,139,255,0.25)"; ctx.beginPath(); ctx.moveTo(yx, yy); ctx.arc(yx, yy, 46 * dpr, a - 0.45, a + 0.45); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#3d8bff"; ctx.beginPath(); ctx.arc(yx, yy, 10 * dpr, 0, 7); ctx.fill();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 2 * dpr; ctx.beginPath(); ctx.moveTo(yx, yy); ctx.lineTo(yx + Math.cos(a) * 16 * dpr, yy + Math.sin(a) * 16 * dpr); ctx.stroke();
+    ctx.fillStyle = "#cfe0ff"; ctx.fillText("You", yx, yy + 22 * dpr);
+  }
+
+  canvas.addEventListener("click", e => {
+    if (state.sweep) return;
+    const r = canvas.getBoundingClientRect();
+    state.target = { x: (e.clientX - r.left) / r.width * ROOM.w, y: (e.clientY - r.top) / r.height * ROOM.h };
+  });
+  function step(dist) {
+    if (state.sweep) return;
+    const a = (state.you.heading - 90) * Math.PI / 180;
+    state.target = { x: clampX(state.you.x + Math.cos(a) * dist), y: clampY(state.you.y + Math.sin(a) * dist) };
+  }
+  function turn(deg) { if (state.sweep) return; state.target = null; state.you.heading += deg; }
+  const clampX = x => Math.min(Math.max(x, 0.3), ROOM.w - 0.3), clampY = y => Math.min(Math.max(y, 0.3), ROOM.h - 0.3);
+  document.getElementById("turnLeft").onclick = () => turn(-30);
+  document.getElementById("turnRight").onclick = () => turn(30);
+  document.getElementById("stepFwd").onclick = () => step(0.6);
+  document.getElementById("togglePhone").onclick = e => { state.showPhone = !state.showPhone; e.target.textContent = state.showPhone ? "Hide phone" : "Show phone"; };
+  document.getElementById("newPhone").onclick = hidePhone;
+  document.getElementById("foundAgain").onclick = hidePhone;
+  window.addEventListener("keydown", e => {
+    const k = e.key.toLowerCase();
+    if (k === "arrowup" || k === "w") { step(0.6); e.preventDefault(); }
+    else if (k === "arrowleft" || k === "a") { turn(-30); e.preventDefault(); }
+    else if (k === "arrowright" || k === "d") { turn(30); e.preventDefault(); }
+  });
+
+  function moveYou(dt) {
+    const t = state.target; if (!t) return;
+    const dx = t.x - state.you.x, dy = t.y - state.you.y, d = Math.hypot(dx, dy);
+    if (d < 0.05) { state.target = null; return; }
+    const want = Math.atan2(dx, -dy) * 180 / Math.PI;
+    const diff = angDiff(want, state.you.heading);
+    const maxTurn = 400 * dt;
+    state.you.heading += Math.max(-maxTurn, Math.min(maxTurn, diff));
+    if (Math.abs(diff) < 45) {
+      const stepLen = Math.min(d, 1.3 * dt);
+      state.you.x = clampX(state.you.x + dx / d * stepLen);
+      state.you.y = clampY(state.you.y + dy / d * stepLen);
+    }
+  }
+
+  // ---------- Speedometer (SVG) ----------
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.getElementById("gauge");
+  const el = (tag, attrs, parent = svg) => { const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); parent.appendChild(n); return n; };
+  const C = 150, TRACK_R = 117, START = 135, SWEEP = 270;
+  const pol = (deg, r) => [C + Math.cos(deg * Math.PI / 180) * r, C + Math.sin(deg * Math.PI / 180) * r];
+  const valueDeg = v => START + closeness(v) * SWEEP;
+  const STOPS = [[0, [255, 59, 48]], [.25, [255, 149, 0]], [.5, [255, 204, 0]], [.75, [140, 230, 51]], [1, [52, 199, 89]]];
+  const colorAt = f => { for (let i = 1; i < STOPS.length; i++) if (f <= STOPS[i][0]) { const [f0, c0] = STOPS[i - 1], [f1, c1] = STOPS[i], k = (f - f0) / (f1 - f0); return `rgb(${c0.map((c, j) => Math.round(c + (c1[j] - c) * k)).join(",")})`; } return "rgb(52,199,89)"; };
+
+  const defs = el("defs", {});
+  const face = el("radialGradient", { id: "face" }, defs);
+  el("stop", { offset: "0%", "stop-color": "#383838" }, face); el("stop", { offset: "100%", "stop-color": "#0a0a0a" }, face);
+  const bezel = el("linearGradient", { id: "bezel", x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+  el("stop", { offset: "0%", "stop-color": "#9a9a9a" }, bezel); el("stop", { offset: "100%", "stop-color": "#1a1a1a" }, bezel);
+  el("circle", { cx: C, cy: C, r: 149, fill: "url(#face)" });
+  el("circle", { cx: C, cy: C, r: 146, fill: "none", stroke: "url(#bezel)", "stroke-width": 6.5 });
+
+  const N = 90, dimArc = el("g", { opacity: 0.2 }), litArc = el("g", {}), litSegs = [];
+  for (let i = 0; i < N; i++) {
+    const a0 = START + i / N * SWEEP, a1 = START + (i + 1) / N * SWEEP + 0.4;
+    const [x0, y0] = pol(a0, TRACK_R), [x1, y1] = pol(a1, TRACK_R);
+    const d = `M ${x0} ${y0} A ${TRACK_R} ${TRACK_R} 0 0 1 ${x1} ${y1}`;
+    const color = colorAt((i + 0.5) / N), cap = (i === 0 || i === N - 1) ? "round" : "butt";
+    el("path", { d, stroke: color, "stroke-width": 16.5, fill: "none", "stroke-linecap": cap }, dimArc);
+    litSegs.push(el("path", { d, stroke: color, "stroke-width": 16.5, fill: "none", "stroke-linecap": cap, opacity: 0 }, litArc));
+  }
+  for (let v = -100; v <= -30; v += 2) {
+    const major = v % 10 === 0, deg = valueDeg(v), len = major ? 16.5 : 8.4;
+    const [x0, y0] = pol(deg, 99), [x1, y1] = pol(deg, 99 - len);
+    el("line", { x1: x0, y1: y0, x2: x1, y2: y1, stroke: "#fff", "stroke-opacity": major ? 0.9 : 0.35, "stroke-width": major ? 2 : 1 });
+    if (major) {
+      const [lx, ly] = pol(deg, 66);
+      const t = el("text", { x: lx, y: ly, fill: "rgba(255,255,255,0.8)", "font-size": 12.6, "font-weight": 600, "text-anchor": "middle", "dominant-baseline": "central", "font-family": "ui-rounded, -apple-system, sans-serif" });
+      t.textContent = v;
+    }
+  }
+  const bestDot = el("circle", { r: 4.8, fill: "#fff", opacity: 0, style: "filter: drop-shadow(0 0 4px #fff)" });
+
+  // Readout box with seven-segment digits
+  el("rect", { x: 95, y: 203, width: 110, height: 58, rx: 9, fill: "rgba(0,0,0,0.8)", stroke: "rgba(255,255,255,0.15)" });
+  const SEG = { "0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc", "5": "afgcd", "6": "afgecd", "7": "abc", "8": "abcdefg", "9": "abcdfg", "-": "g", " ": "" };
+  const SLANT = 0.12, DH = 30, DW = DH * 0.56, CELL = DW + SLANT * DH, GAP = DH * 0.09;
+  function segShapes(w, h) {
+    const t = w * 0.2, gap = t * 0.16, L = t / 2, R = w - t / 2, T = t / 2, M = h / 2, B = h - t / 2;
+    const hz = y => { const x0 = L + gap, x1 = R - gap; return [[x0, y], [x0 + t / 2, y - t / 2], [x1 - t / 2, y - t / 2], [x1, y], [x1 - t / 2, y + t / 2], [x0 + t / 2, y + t / 2]]; };
+    const vt = (x, y0, y1) => { const a = y0 + gap, b = y1 - gap; return [[x, a], [x + t / 2, a + t / 2], [x + t / 2, b - t / 2], [x, b], [x - t / 2, b - t / 2], [x - t / 2, a + t / 2]]; };
+    return { a: hz(T), g: hz(M), d: hz(B), f: vt(L, T, M), b: vt(R, T, M), e: vt(L, M, B), c: vt(R, M, B) };
+  }
+  const shapes = segShapes(DW, DH), digitsG = el("g", {}), cells = [];
+  const totalW = 4 * CELL + 3 * GAP, ox = C - totalW / 2, oy = 209;
+  for (let k = 0; k < 4; k++) {
+    const cell = {};
+    for (const s of "abcdefg") {
+      const pts = shapes[s].map(([x, y]) => `${(ox + k * (CELL + GAP) + x - SLANT * y + SLANT * DH).toFixed(2)},${(oy + y).toFixed(2)}`).join(" ");
+      cell[s] = el("polygon", { points: pts }, digitsG);
+    }
+    cells.push(cell);
+  }
+  const dbmText = el("text", { x: C, y: 252, fill: "rgba(255,255,255,0.55)", "font-size": 11.4, "font-weight": 700, "text-anchor": "middle", "font-family": "ui-monospace, Menlo, monospace" });
+  dbmText.textContent = "dBm";
+
+  const needle = el("g", { style: "transform-origin: 150px 150px; transition: transform .6s cubic-bezier(.34,1.56,.64,1)" });
+  const ng = el("linearGradient", { id: "needleG", x1: 0, y1: 1, x2: 0, y2: 0 }, defs);
+  el("stop", { offset: "0%", "stop-color": "#ff4026" }, ng); el("stop", { offset: "100%", "stop-color": "#ff9500" }, ng);
+  el("rect", { x: C - 3.6, y: C - 106.5, width: 7.2, height: 111, rx: 3.6, fill: "url(#needleG)", style: "filter: drop-shadow(0 0 4px rgba(255,0,0,.7))" }, needle);
+  const hubG = el("radialGradient", { id: "hub", cx: "30%", cy: "30%" }, defs);
+  el("stop", { offset: "0%", "stop-color": "#c0c0c0" }, hubG); el("stop", { offset: "100%", "stop-color": "#333" }, hubG);
+  el("circle", { cx: C, cy: C, r: 13.5, fill: "url(#hub)", stroke: "rgba(0,0,0,.6)" });
+  const zoneText = el("text", { x: C, y: 282, "font-size": 13.5, "font-weight": 900, "letter-spacing": 2, "text-anchor": "middle", "font-family": "ui-rounded, -apple-system, sans-serif" });
+
+  function drawGauge(rssi, strongest) {
+    const [label, color] = zone(rssi);
+    document.documentElement.style.setProperty("--zone", color);
+    const f = rssi == null ? 0 : closeness(rssi);
+    litSegs.forEach((p, i) => p.setAttribute("opacity", rssi != null && (i + 1) / N <= f + 1e-9 ? 1 : 0));
+    litArc.setAttribute("style", `filter: drop-shadow(0 0 6px ${color})`);
+    needle.style.transform = `rotate(${valueDeg(rssi == null ? -100 : rssi) + 90}deg)`;
+    needle.style.opacity = rssi == null ? 0.35 : 1;
+    if (strongest != null) { const [x, y] = pol(valueDeg(strongest), TRACK_R); bestDot.setAttribute("cx", x); bestDot.setAttribute("cy", y); bestDot.setAttribute("opacity", 1); }
+    else bestDot.setAttribute("opacity", 0);
+    const text = (rssi == null ? "--" : String(rssi)).padStart(4, " ");
+    [...text].forEach((ch, k) => {
+      const lit = SEG[ch] ?? "";
+      for (const s of "abcdefg") { const p = cells[k][s]; p.setAttribute("fill", color); p.setAttribute("fill-opacity", lit.includes(s) ? 1 : 0.08); }
+    });
+    digitsG.setAttribute("style", `filter: drop-shadow(0 0 5px ${color})`);
+    zoneText.textContent = label; zoneText.setAttribute("fill", color);
+    zoneText.setAttribute("style", `filter: drop-shadow(0 0 4px ${color})`);
+  }
+
+  // ---------- 3D arrow ----------
+  const stage = document.getElementById("arrowStage"), spinner = document.getElementById("spinner"), bob = document.getElementById("bob");
+  const ARROW_PATH = "M29 0 L58 38 L39 38 L39 85 L19 85 L19 38 L0 38 Z";
+  const LAYERS = 9;
+  for (let i = 0; i < LAYERS; i++) {
+    const s = document.createElementNS(NS, "svg");
+    s.setAttribute("viewBox", "0 0 58 85"); s.setAttribute("class", "layer " + (i === LAYERS - 1 ? "top" : "side"));
+    s.style.transform = `translateZ(${i * 1.7}px)`;
+    const p = document.createElementNS(NS, "path"); p.setAttribute("d", ARROW_PATH);
+    if (i === LAYERS - 1) { p.setAttribute("stroke", "rgba(255,255,255,.75)"); p.setAttribute("stroke-width", "1.2"); }
+    s.appendChild(p);
+    if (i === LAYERS - 1) {
+      const g = document.createElementNS(NS, "path"); g.setAttribute("d", ARROW_PATH);
+      g.setAttribute("style", "fill: url(#shine)");
+      const d = document.createElementNS(NS, "defs");
+      d.innerHTML = '<linearGradient id="shine" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff" stop-opacity=".55"/><stop offset="100%" stop-color="#fff" stop-opacity="0"/></linearGradient>';
+      s.appendChild(d); s.appendChild(g);
+    }
+    bob.appendChild(s);
+  }
+  let arrowAngle = 0, lastTarget = 0;
+  function setArrow(rotation, color, active) {
+    if (rotation !== lastTarget) {
+      let d = angDiff(rotation, arrowAngle);
+      arrowAngle += d; lastTarget = rotation;
+      spinner.style.transform = `rotateZ(${arrowAngle}deg)`;
+    }
+    stage.style.setProperty("--arrow", color);
+    stage.classList.toggle("active", active);
+  }
+
+  // ---------- Direction panel ----------
+  const dirTitle = document.getElementById("dirTitle"), dirDetail = document.getElementById("dirDetail");
+  function updateDirection(now) {
+    if (state.sweep) {
+      const h = state.sweep.step;
+      setArrow(h * 90, "#0a84ff", true);
+      dirTitle.textContent = `Facing ${HEADINGS[h][0].toLowerCase()}`; dirTitle.style.color = "#0a84ff";
+      dirDetail.textContent = "Compared with the way you faced in step 1.";
+      return;
+    }
+    const r = state.sweepResult;
+    if (r && r.best != null && confidence(r.margin) !== "unclear") {
+      const strong = confidence(r.margin) === "strong", color = strong ? "#34c759" : "#00c7be";
+      setArrow(r.best * 90, color, true);
+      dirTitle.textContent = `Most likely ${HEADINGS[r.best][1]}`; dirTitle.style.color = color;
+      dirDetail.textContent = `${strong ? "Strong" : "Likely"}: ${r.margin} dB above the next direction.`;
+      return;
+    }
+    const t = trend(now);
+    const show = (rot, color, active, title, detail) => { setArrow(rot, color, active); dirTitle.textContent = title; dirTitle.style.color = active ? color : ""; dirDetail.textContent = detail; };
+    if (t.kind === "closer") show(0, "#34c759", true, "Getting closer", `+${t.db} dB in the last few seconds. Keep going this way.`);
+    else if (t.kind === "farther") show(180, "#ff9500", true, "Turn around", `−${t.db} dB in the last few seconds. You're moving away.`);
+    else if (t.kind === "steady") show(0, "#ffcc00", false, "About the same", "Try another direction, or use Find direction.");
+    else show(0, "#8e8e93", false, "Walk a few steps", "findphone needs a few seconds of movement to see a trend.");
+  }
+
+  const sweepBox = document.getElementById("sweep");
+  function renderSweep() {
+    const s = state.sweep, r = state.sweepResult;
+    if (s) {
+      const now = performance.now(), el2 = (now - s.phaseStart) / 1000;
+      const title = s.phase === "turning"
+        ? (s.step === 0 ? "Face any direction. This is \"ahead\"." : "Turning a quarter-turn to the RIGHT (90°)…")
+        : `Hold still, facing ${HEADINGS[s.step][0].toLowerCase()}.`;
+      const prog = s.phase === "measuring" ? Math.min(1, el2 / MEASURE_S) : 0;
+      sweepBox.innerHTML = `<div class="step">Step ${s.step + 1} of 4 (sped up for the demo)</div><div class="title">${title}</div><progress id="sweepProg" max="1" value="${prog}"></progress> <button class="btn" id="cancelSweep" style="margin-top:8px">Cancel</button>`;
+      document.getElementById("cancelSweep").onclick = () => { state.sweep = null; renderSweep(); };
+      return;
+    }
+    if (r) {
+      const conf = r.best == null ? "unclear" : confidence(r.margin);
+      const cells = HEADINGS.map(([n], i) => `<div>${["↑", "→", "↓", "←"][i]}<br>${n}<br>${r.medians[i] != null ? (i === r.best && conf !== "unclear" ? `<b>${r.medians[i]} dBm</b>` : `${r.medians[i]} dBm`) : "–"}</div>`).join("");
+      const msg = conf === "unclear"
+        ? `No clear direction: the directions differed by only ${r.margin} dB. Try again from another spot, or walk and follow the arrow.`
+        : "Turn toward the arrow (relative to your step-1 direction) and walk while watching closer/farther.";
+      sweepBox.innerHTML = `<div class="medians">${cells}</div><div style="font-size:14px">${msg}</div><div style="margin-top:8px;display:flex;gap:8px"><button class="btn" id="again">Try again</button><button class="btn" id="done">Done</button></div>`;
+      document.getElementById("again").onclick = startSweep;
+      document.getElementById("done").onclick = () => { state.sweepResult = null; renderSweep(); };
+      return;
+    }
+    sweepBox.innerHTML = `<button class="btn primary" id="findDir">🧭 Find direction (turn on the spot)</button>`;
+    document.getElementById("findDir").onclick = startSweep;
+  }
+
+  // ---------- Click sound ----------
+  let audio = null, nextClick = 0;
+  const soundBox = document.getElementById("sound");
+  soundBox.onchange = () => { if (soundBox.checked && !audio) audio = new (window.AudioContext || window.webkitAudioContext)(); if (audio && audio.state === "suspended") audio.resume(); };
+  function click() {
+    const t = audio.currentTime, o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = 2200; g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+    o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.035);
+  }
+
+  // ---------- Main loop ----------
+  const stats = document.getElementById("stats");
+  let lastFrame = performance.now(), lastRead = 0, lastSlow = 0;
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastFrame) / 1000); lastFrame = now;
+    if (!state.sweep) moveYou(dt);
+    updateSweep(now);
+    if (now - lastRead >= READ_EVERY) { lastRead = now; takeReading(now); }
+    const smoothed = median(state.recent);
+    if (!state.found && Math.hypot(state.phone.x - state.you.x, state.phone.y - state.you.y) < 0.7) {
+      state.found = true; document.getElementById("found").classList.add("show");
+    }
+    if (soundBox.checked && audio && smoothed != null && now >= nextClick) { click(); nextClick = now + clickInterval(smoothed) * 1000; }
+    if (now - lastSlow >= 330) {
+      lastSlow = now;
+      drawGauge(smoothed, state.strongest && state.strongest.rssi);
+      updateDirection(now);
+      const best = state.strongest ? `${state.strongest.rssi} dBm at ${clock((state.strongest.t - state.start) / 1000)}` : "none yet";
+      stats.innerHTML = `<span>Source</span><span>Simulated link (every 0.3 s)</span><span>Latest</span><span>${state.latest ? state.latest.rssi + " dBm" : "none yet"}</span><span>Strongest</span><span>${best}</span><span>Elapsed</span><span>${clock((now - state.start) / 1000)}</span>`;
+    }
+    drawRoom();
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  hidePhone();
+  renderSweep();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

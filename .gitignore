@@ -1,0 +1,17 @@
+# Build output (Swift Package Manager and Xcode)
+.build/
+Apps/build/
+DerivedData/
+
+# Xcode per-user state
+xcuserdata/
+*.xcuserstate
+
+# macOS
+.DS_Store
+
+# Local tool settings
+.claude/
+
+# Release archives (published as GitHub Release assets instead)
+*.zip
